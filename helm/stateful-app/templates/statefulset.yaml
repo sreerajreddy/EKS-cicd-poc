@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stateful-app
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stateful-app
+
+spec:
+  serviceName: stateful-app
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: stateful-app
+  template:
+    metadata:
+      labels:
+        app: stateful-app
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: stateful-app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+              name: http
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: stateful-storage
+              mountPath: {{ .Values.app.mountPath }}
+      volumes:
+        - name: stateful-storage
+          persistentVolumeClaim:
+            claimName: stateful-app-pvc

@@ -1,0 +1,38 @@
+replicaCount: 1
+
+image:
+  repository: 045861053549.dkr.ecr.ap-south-1.amazonaws.com/eks-cicd-poc/dev/stateful-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: stateful-app-sa
+
+service:
+  port: 5000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+storage:
+  storageClassName: efs-sc
+  size: 5Gi
+  accessModes:
+    - ReadWriteMany
+
+efs:
+  fileSystemId: fs-0becf1645a031d46e
+  provisioningMode: efs-ap
+  directoryPerms: "700"
+  basePath: "/dynamic-provisioning"
+
+app:
+  mountPath: /data
+
+

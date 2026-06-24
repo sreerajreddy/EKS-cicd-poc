@@ -57,7 +57,7 @@ variable "cluster_version" {
 
 variable "node_instance_types" {
   type    = list(string)
-  default = ["t3.medium"]
+  default = ["t3.micro"]
 }
 
 variable "node_desired_size" {
@@ -72,11 +72,11 @@ variable "node_min_size" {
 
 variable "node_max_size" {
   type    = number
-  default = 3
+  default = 2
 }
 
 variable "github_repo" {
   type        = string
   description = "GitHub repo in org/repo format for OIDC role trust"
-  default     = "https://github.com/sreerajreddy/EKS-cicd-poc.git"
+  default     = "sreerajreddy/EKS-cicd-poc.git"
 }

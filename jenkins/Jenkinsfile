@@ -1,0 +1,100 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION   = "ap-south-1"
+    ACCOUNT_ID   = "045861053549"
+    ECR_REPO     = "045861053549.dkr.ecr.ap-south-1.amazonaws.com/eks-cicd-poc/dev/stateless-app"
+    IMAGE_TAG    = "${BUILD_NUMBER}"
+    CLUSTER_NAME = "eks-cicd-poc-dev"
+    NAMESPACE    = "apps"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Verify Tools') {
+      steps {
+        sh '''
+          aws --version
+          docker --version
+          kubectl version --client
+        '''
+      }
+    }
+
+    stage('Login to ECR') {
+      steps {
+        sh '''
+          aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+        '''
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh '''
+          docker build -t stateless-app:$IMAGE_TAG ./apps/stateless-app
+          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:$IMAGE_TAG
+          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:latest
+        '''
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh '''
+          docker push $ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REPO:latest
+        '''
+      }
+    }
+
+    stage('Update kubeconfig') {
+      steps {
+        sh '''
+          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+        '''
+      }
+    }
+
+    stage('Create Namespace if Missing') {
+      steps {
+        sh '''
+          kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+        '''
+      }
+    }
+
+    stage('Deploy to EKS') {
+      steps {
+        sh '''
+          kubectl apply -f k8s/stateless-app/service.yaml
+
+          kubectl create deployment stateless-app \
+            --image=$ECR_REPO:$IMAGE_TAG \
+            -n $NAMESPACE \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl set image deployment/stateless-app \
+            stateless-app=$ECR_REPO:$IMAGE_TAG \
+            -n $NAMESPACE
+        '''
+      }
+    }
+
+    stage('Verify Deployment') {
+      steps {
+        sh '''
+          kubectl rollout status deployment/stateless-app -n $NAMESPACE --timeout=180s || true
+          kubectl get all -n $NAMESPACE || true
+        '''
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: stateless-app
+  namespace: apps
+  labels:
+    app: stateless-app
+spec:
+  selector:
+    app: stateless-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: ClusterIP

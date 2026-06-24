@@ -1,0 +1,43 @@
+#apiVersion: v1
+#kind: Service
+#metadata:
+#  name: {{ include "stateful-app.fullname" . }}
+#  labels:
+#    {{- include "stateful-app.labels" . | nindent 4 }}
+#spec:
+#  type: {{ .Values.service.type }}
+#  ports:
+#    - port: {{ .Values.service.port }}
+#      targetPort: http
+#      protocol: TCP
+#      name: http
+#  selector:
+#    {{- include "stateful-app.selectorLabels" . | nindent 4 }}
+#
+#
+#
+#
+#
+#
+#
+
+
+
+
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: stateful-app
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stateful-app
+spec:
+  clusterIP: None
+  selector:
+    app: stateful-app
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP
+      name: http
