@@ -1,0 +1,97 @@
+# ------------------------------
+# OS / editor junk
+# ------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# ------------------------------
+# Terraform
+# ------------------------------
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfplan
+plan.out
+
+# Sensitive tfvars (keep only sample files in repo)
+*.auto.tfvars
+terraform.tfvars
+!terraform/**/*.tfvars.example
+terraform/envs/dev/terraform.tfvars.example
+
+# ------------------------------
+# AWS / kube / local creds
+# ------------------------------
+.kube/
+kubeconfig
+*.kubeconfig
+aws-creds.env
+.env
+.env.*
+!.env.example
+
+# ------------------------------
+# Helm / Kubernetes generated artifacts
+# ------------------------------
+*.tgz
+chart.lock
+helmfile.lock
+rendered/
+manifests-rendered/
+
+# ------------------------------
+# Logs / temp
+# ------------------------------
+*.log
+logs/
+tmp/
+temp/
+
+# ------------------------------
+# Python
+# ------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+dist/
+build/
+*.egg-info/
+
+# ------------------------------
+# Node.js
+# ------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+
+# ------------------------------
+# Test / coverage
+# ------------------------------
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# ------------------------------
+# Jenkins local / misc
+# ------------------------------
+.jenkins/
