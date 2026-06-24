@@ -20,7 +20,7 @@ module "eks" {
       max_size     = var.node_max_size
       desired_size = var.node_desired_size
 
-      ami_type       = "AL2_x86_64_STANDARD"
+      ami_type       = "AL2_x86_64"
       capacity_type  = "ON_DEMAND"
       disk_size      = 30
 

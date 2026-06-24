@@ -17,8 +17,8 @@ variable "environment" {
 }
 
 variable "vpc_cidr" {
-  type        = string
-  default     = "10.10.0.0/16"
+  type    = string
+  default = "10.10.0.0/16"
 }
 
 variable "azs" {
@@ -46,13 +46,13 @@ variable "public_subnets" {
 }
 
 variable "cluster_name" {
-  type        = string
-  default     = "eks-cicd-poc-dev"
+  type    = string
+  default = "eks-cicd-poc-dev"
 }
 
 variable "cluster_version" {
-  type        = string
-  default     = "1.31"
+  type    = string
+  default = "1.31"
 }
 
 variable "node_instance_types" {
