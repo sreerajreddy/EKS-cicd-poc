@@ -1,0 +1,84 @@
+name: Deploy Stateless App to EKS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/stateless-app/**'
+      - 'k8s/stateless-app/**'
+      - '.github/workflows/deploy-stateless.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+  CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
+  NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+  APP_NAME: ${{ vars.APP_NAME }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  
+jobs:
+  deploy:
+    name: Build, Push and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::045861053549:role/eks-cicd-poc-dev-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::7}
+          docker build -t stateless-app:$IMAGE_TAG ./apps/stateless-app
+          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:$IMAGE_TAG
+          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:latest
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push $ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REPO:latest
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+
+      - name: Create namespace if missing
+        run: |
+          kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy app to EKS
+        run: |
+          kubectl apply -f k8s/stateless-app/service.yaml
+
+          kubectl create deployment stateless-app \
+            --image=$ECR_REPO:$IMAGE_TAG \
+            -n $NAMESPACE \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl set image deployment/stateless-app \
+            stateless-app=$ECR_REPO:$IMAGE_TAG \
+            -n $NAMESPACE
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/stateless-app -n $NAMESPACE --timeout=180s || true
+          kubectl get all -n $NAMESPACE || true

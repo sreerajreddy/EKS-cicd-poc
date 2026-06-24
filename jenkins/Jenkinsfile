@@ -1,13 +1,15 @@
 pipeline {
   agent any
 
+  parameters {
+    choice(name: 'ENV', choices: ['dev'], description: 'Target environment')
+    string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag')
+    booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy monitoring stack')
+  }
+
   environment {
-    AWS_REGION   = "ap-south-1"
-    ACCOUNT_ID   = "045861053549"
-    ECR_REPO     = "045861053549.dkr.ecr.ap-south-1.amazonaws.com/eks-cicd-poc/dev/stateless-app"
-    IMAGE_TAG    = "${BUILD_NUMBER}"
-    CLUSTER_NAME = "eks-cicd-poc-dev"
-    NAMESPACE    = "apps"
+    APP_NAME = "stateless-app"
+    ENV_FILE = "configs/${params.ENV}.env"
   }
 
   stages {
@@ -17,83 +19,83 @@ pipeline {
       }
     }
 
-    stage('Verify Tools') {
+    stage('Load Env') {
       steps {
-        sh '''
-          aws --version
-          docker --version
-          kubectl version --client
-        '''
-      }
-    }
-
-    stage('Login to ECR') {
-      steps {
-        sh '''
-          aws ecr get-login-password --region $AWS_REGION | \
-          docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-        '''
+        script {
+          def props = readProperties file: env.ENV_FILE
+          env.AWS_REGION = props['AWS_REGION']
+          env.CLUSTER_NAME = props['CLUSTER_NAME']
+          env.AWS_ACCOUNT_ID = props['AWS_ACCOUNT_ID']
+          env.ECR_REPO_STATELESS = props['ECR_REPO_STATELESS']
+          env.K8S_NAMESPACE = props['K8S_NAMESPACE']
+          env.MONITORING_NAMESPACE = props['MONITORING_NAMESPACE']
+        }
       }
     }
 
     stage('Build Docker Image') {
       steps {
-        sh '''
-          docker build -t stateless-app:$IMAGE_TAG ./apps/stateless-app
-          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:$IMAGE_TAG
-          docker tag stateless-app:$IMAGE_TAG $ECR_REPO:latest
-        '''
+        sh """
+          docker build -t ${APP_NAME}:${params.IMAGE_TAG} ./apps/statelessapp
+        """
       }
     }
 
-    stage('Push Docker Image') {
+    stage('Login to ECR') {
       steps {
-        sh '''
-          docker push $ECR_REPO:$IMAGE_TAG
-          docker push $ECR_REPO:latest
-        '''
+        sh """
+          aws ecr get-login-password --region ${AWS_REGION} | \
+          docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+        """
       }
     }
 
-    stage('Update kubeconfig') {
+    stage('Push Image to ECR') {
       steps {
-        sh '''
-          aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
-        '''
+        sh """
+          IMAGE_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_STATELESS}:${params.IMAGE_TAG}
+          docker tag ${APP_NAME}:${params.IMAGE_TAG} $IMAGE_URI
+          docker push $IMAGE_URI
+        """
       }
     }
 
-    stage('Create Namespace if Missing') {
+    stage('Deploy App') {
       steps {
-        sh '''
-          kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-        '''
+        sh """
+          chmod +x scripts/deploy-stateless.sh
+          ./scripts/deploy-stateless.sh ${ENV_FILE} ${params.IMAGE_TAG}
+        """
       }
     }
 
-    stage('Deploy to EKS') {
-      steps {
-        sh '''
-          kubectl apply -f k8s/stateless-app/service.yaml
+    stage('Deploy Monitoring') {
+       when {
+         expression { return params.DEPLOY_MONITORING == true }
+       }
+       steps {
+         script {
+           // Update kubeconfig to make sure kubectl can talk to the target EKS cluster
+           sh "aws eks update-kubeconfig --region ${env.AWS_REGION} --name ${env.CLUSTER_NAME}"
 
-          kubectl create deployment stateless-app \
-            --image=$ECR_REPO:$IMAGE_TAG \
-            -n $NAMESPACE \
-            --dry-run=client -o yaml | kubectl apply -f -
+           // Check if Prometheus or Grafana deployments exist in the monitoring namespace
+           // 'returnStatus: true' prevents the pipeline from failing if grep returns nothing (exit code 1)
+           def monitoringExists = sh(
+             script: "kubectl get deployments -n ${env.MONITORING_NAMESPACE} 2>/dev/null | grep -E 'prometheus|grafana'",
+             returnStatus: true
+           )
 
-          kubectl set image deployment/stateless-app \
-            stateless-app=$ECR_REPO:$IMAGE_TAG \
-            -n $NAMESPACE
-        '''
-      }
-    }
-
-    stage('Verify Deployment') {
-      steps {
-        sh '''
-          kubectl rollout status deployment/stateless-app -n $NAMESPACE --timeout=180s || true
-          kubectl get all -n $NAMESPACE || true
-        '''
+           // If grep finds them, returnStatus is 0. If it's 0, we skip deployment.
+           if (monitoringExists == 0) {
+             echo "Prometheus/Grafana already detected in namespace '${env.MONITORING_NAMESPACE}'. Skipping installation."
+           } else {
+             echo "Monitoring stack not found. Proceeding with deployment..."
+             sh """
+               chmod +x scripts/deploy-monitoring.sh
+               ./scripts/deploy-monitoring.sh ${ENV_FILE}
+             """
+        }
+       }
       }
     }
   }
