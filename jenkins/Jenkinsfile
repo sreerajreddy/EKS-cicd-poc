@@ -60,14 +60,36 @@ pipeline {
       }
     }
 
-    stage('Deploy App') {
+    //stage('Deploy App') {
+    //  steps {
+     //   sh """
+     //     chmod +x scripts/deploy-stateless.sh
+     //     ./scripts/deploy-stateless.sh ${ENV_FILE} ${params.IMAGE_TAG}
+       // """
+    //  }
+   // }
+    stage('Deploy Stateful App via Helm') {
+      when {
+         expression { return env.DEPLOY_STATEFUL?.toBoolean() == true }
+       }
       steps {
-        sh """
-          chmod +x scripts/deploy-stateless.sh
-          ./scripts/deploy-stateless.sh ${ENV_FILE} ${params.IMAGE_TAG}
-        """
-      }
-    }
+         script {
+             sh """
+               aws eks update-kubeconfig \
+                 --region ${AWS_REGION} \
+                 --name ${EKS_CLUSTER_NAME}
+ 
+               kubectl get ns ${APP_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${APP_NAMESPACE}
+ 
+               helm upgrade --install ${STATEFUL_RELEASE_NAME} ./helm/stateful-app \
+                 -n ${APP_NAMESPACE} \
+                 --set image.repository=${STATEFUL_ECR_REPO} \
+                 --set image.tag=${IMAGE_TAG} \
+                 --set persistence.enabled=true
+             """
+         }
+       }
+     }
 
     stage('Deploy Monitoring') {
        when {
