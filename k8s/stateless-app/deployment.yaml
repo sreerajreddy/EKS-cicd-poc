@@ -17,22 +17,25 @@ spec:
     spec:
       containers:
         - name: stateless-app
-          image: 045861053549.dkr.ecr.ap-south-1.amazonaws.com/eks-cicd-poc/dev/stateless-app:latest
+          image: IMAGE_PLACEHOLDER
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
+
           readinessProbe:
             httpGet:
               path: /health
               port: 5000
             initialDelaySeconds: 5
             periodSeconds: 10
+
           livenessProbe:
             httpGet:
               path: /health
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 20
+
           resources:
             requests:
               cpu: "100m"
@@ -40,4 +43,3 @@ spec:
             limits:
               cpu: "250m"
               memory: "256Mi"
-
