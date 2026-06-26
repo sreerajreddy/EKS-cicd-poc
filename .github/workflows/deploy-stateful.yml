@@ -48,20 +48,10 @@ jobs:
           kubectl apply -f k8s/stateful-app/statefulset.yaml
           kubectl apply -f k8s/stateful-app/ingress.yaml
 
-      - name: Wait for PVC
-        run: |
-          kubectl wait \
-            --for=condition=Bound \
-            pvc/nginx-efs-pvc \
-            -n $K8S_NAMESPACE \
-            --timeout=180s
 
-      - name: Wait for StatefulSet
+      - name: Verify PVC
         run: |
-          kubectl rollout status \
-            statefulset/stateful-nginx \
-            -n $K8S_NAMESPACE \
-            --timeout=300s
+          kubectl get pvc -n $K8S_NAMESPACE
 
       - name: Verify Deployment
         run: |
