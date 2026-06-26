@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stateful-nginx
+  namespace: apps
+
+spec:
+  serviceName: stateful-nginx
+
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: stateful-nginx
+
+  template:
+    metadata:
+      labels:
+        app: stateful-nginx
+
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:stable
+
+        ports:
+        - containerPort: 80
+
+        volumeMounts:
+        - name: efs-storage
+          mountPath: /usr/share/nginx/html
+
+      volumes:
+      - name: efs-storage
+        persistentVolumeClaim:
+          claimName: nginx-efs-pvc
