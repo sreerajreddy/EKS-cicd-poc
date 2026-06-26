@@ -1,0 +1,78 @@
+name: Deploy Stateful App to EKS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
+  K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+
+jobs:
+  deploy:
+    name: Deploy Stateful Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name $CLUSTER_NAME
+
+      - name: Create Namespace
+        run: |
+          kubectl create namespace $K8S_NAMESPACE \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Stateful Resources
+        run: |
+          kubectl apply -f k8s/stateful-app/pvc.yaml
+          kubectl apply -f k8s/stateful-app/service.yaml
+          kubectl apply -f k8s/stateful-app/statefulset.yaml
+          kubectl apply -f k8s/stateful-app/ingress.yaml
+
+      - name: Wait for PVC
+        run: |
+          kubectl wait \
+            --for=condition=Bound \
+            pvc/nginx-efs-pvc \
+            -n $K8S_NAMESPACE \
+            --timeout=180s
+
+      - name: Wait for StatefulSet
+        run: |
+          kubectl rollout status \
+            statefulset/stateful-nginx \
+            -n $K8S_NAMESPACE \
+            --timeout=300s
+
+      - name: Verify Deployment
+        run: |
+          echo "Pods"
+          kubectl get pods -n $K8S_NAMESPACE
+
+          echo "Services"
+          kubectl get svc -n $K8S_NAMESPACE
+
+          echo "PVC"
+          kubectl get pvc -n $K8S_NAMESPACE
+
+          echo "Ingress"
+          kubectl get ingress -n $K8S_NAMESPACE
