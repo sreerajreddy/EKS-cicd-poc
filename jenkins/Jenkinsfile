@@ -1,124 +1,255 @@
 pipeline {
+
   agent any
 
+
+
   parameters {
+
     choice(name: 'ENV', choices: ['dev'], description: 'Target environment')
+
     string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag')
+
     booleanParam(name: 'DEPLOY_MONITORING', defaultValue: false, description: 'Deploy monitoring stack')
+
+    booleanParam(name: 'DEPLOY_STATEFUL', defaultValue: false, description: 'Deploy stateful app via Helm')
+
   }
+
+
 
   environment {
+
     APP_NAME = "stateless-app"
-    ENV_FILE = "configs/${params.ENV}.env"
+
+    ENV_FILE = "configs/${params.ENV}.config"
+
   }
+
+
 
   stages {
+
     stage('Checkout') {
+
       steps {
-        checkout scm
+
+        checkout([$class: 'GitSCM', 
+
+          branches: [[name: '*/main']], 
+
+          userRemoteConfigs: [[url: 'https://github.com/sreerajreddy/EKS-cicd-poc']]])
+
       }
+
     }
 
-    stage('Load Env') {
+
+
+    stage('Load Environment Config') {
+
       steps {
+
         script {
+
           def props = readProperties file: env.ENV_FILE
-          env.AWS_REGION = props['AWS_REGION']
-          env.CLUSTER_NAME = props['CLUSTER_NAME']
-          env.AWS_ACCOUNT_ID = props['AWS_ACCOUNT_ID']
-          env.ECR_REPO_STATELESS = props['ECR_REPO_STATELESS']
-          env.K8S_NAMESPACE = props['K8S_NAMESPACE']
-          env.MONITORING_NAMESPACE = props['MONITORING_NAMESPACE']
+
+          env.AWS_REGION            = props['AWS_REGION']
+
+          env.CLUSTER_NAME          = props['CLUSTER_NAME']
+
+          env.AWS_ACCOUNT_ID        = props['AWS_ACCOUNT_ID']
+
+          env.ECR_REPO_STATELESS    = props['ECR_REPO_STATELESS']
+
+          env.ECR_REPO_STATEFUL     = props['ECR_REPO_STATEFUL']
+
+          env.K8S_NAMESPACE         = props['K8S_NAMESPACE']
+
+          env.MONITORING_NAMESPACE  = props['MONITORING_NAMESPACE']
+
+          env.STATEFUL_RELEASE_NAME = props['STATEFUL_RELEASE_NAME'] ?: 'stateful-app'
+
         }
+
       }
+
     }
+
+
 
     stage('Build Docker Image') {
-      steps {
-        sh """
-          docker build -t ${APP_NAME}:${params.IMAGE_TAG} ./apps/statelessapp
-        """
-      }
-    }
+
+  steps {
+
+    sh """
+
+      docker build -t ${APP_NAME}:${IMAGE_TAG} ./apps/stateless-app
+
+    """
+
+  }
+
+}
+
+
 
     stage('Login to ECR') {
+
       steps {
-        sh """
+
+        sh '''
+
           aws ecr get-login-password --region ${AWS_REGION} | \
+
           docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-        """
+
+        '''
+
       }
+
     }
+
+
 
     stage('Push Image to ECR') {
+
       steps {
-        sh """
+
+        sh '''
+
           IMAGE_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_STATELESS}:${params.IMAGE_TAG}
+
           docker tag ${APP_NAME}:${params.IMAGE_TAG} $IMAGE_URI
+
           docker push $IMAGE_URI
-        """
+
+        '''
+
       }
+
     }
 
-    //stage('Deploy App') {
-    //  steps {
-     //   sh """
-     //     chmod +x scripts/deploy-stateless.sh
-     //     ./scripts/deploy-stateless.sh ${ENV_FILE} ${params.IMAGE_TAG}
-       // """
-    //  }
-   // }
-    stage('Deploy Stateful App via Helm') {
-      when {
-         expression { return env.DEPLOY_STATEFUL?.toBoolean() == true }
-       }
+
+
+    stage('Deploy Stateless App') {
+
       steps {
-         script {
-             sh """
-               aws eks update-kubeconfig \
-                 --region ${AWS_REGION} \
-                 --name ${EKS_CLUSTER_NAME}
- 
-               kubectl get ns ${APP_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${APP_NAMESPACE}
- 
-               helm upgrade --install ${STATEFUL_RELEASE_NAME} ./helm/stateful-app \
-                 -n ${APP_NAMESPACE} \
-                 --set image.repository=${STATEFUL_ECR_REPO} \
-                 --set image.tag=${IMAGE_TAG} \
-                 --set persistence.enabled=true
-             """
-         }
-       }
-     }
+
+        sh '''
+
+          chmod +x scripts/deploy-stateless.sh
+
+          ./scripts/deploy-stateless.sh ${ENV_FILE} ${params.IMAGE_TAG}
+
+        '''
+
+      }
+
+    }
+
+
+
+    stage('Deploy Stateful App via Helm') {
+
+      when {
+
+        expression { return params.DEPLOY_STATEFUL == true }
+
+      }
+
+      steps {
+
+        sh '''
+
+          aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+
+          kubectl get ns ${K8S_NAMESPACE} >/dev/null 2>&1 || kubectl create ns ${K8S_NAMESPACE}
+
+          helm upgrade --install ${STATEFUL_RELEASE_NAME} ./helm/stateful-app \
+
+            -n ${K8S_NAMESPACE} \
+
+            --set persistence.enabled=true
+
+        '''
+
+      }
+
+    }
+
+
 
     stage('Deploy Monitoring') {
-       when {
-         expression { return params.DEPLOY_MONITORING == true }
-       }
-       steps {
-         script {
-           // Update kubeconfig to make sure kubectl can talk to the target EKS cluster
-           sh "aws eks update-kubeconfig --region ${env.AWS_REGION} --name ${env.CLUSTER_NAME}"
 
-           // Check if Prometheus or Grafana deployments exist in the monitoring namespace
-           // 'returnStatus: true' prevents the pipeline from failing if grep returns nothing (exit code 1)
-           def monitoringExists = sh(
-             script: "kubectl get deployments -n ${env.MONITORING_NAMESPACE} 2>/dev/null | grep -E 'prometheus|grafana'",
-             returnStatus: true
-           )
+      when {
 
-           // If grep finds them, returnStatus is 0. If it's 0, we skip deployment.
-           if (monitoringExists == 0) {
-             echo "Prometheus/Grafana already detected in namespace '${env.MONITORING_NAMESPACE}'. Skipping installation."
-           } else {
-             echo "Monitoring stack not found. Proceeding with deployment..."
-             sh """
-               chmod +x scripts/deploy-monitoring.sh
-               ./scripts/deploy-monitoring.sh ${ENV_FILE}
-             """
-        }
-       }
+        expression { return params.DEPLOY_MONITORING == true }
+
       }
+
+      steps {
+
+        script {
+
+          sh '''
+
+            aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+
+          '''
+
+          def monitoringExists = sh(
+
+            script: "kubectl get deployments -n ${MONITORING_NAMESPACE} 2>/dev/null | grep -E 'prometheus|grafana'",
+
+            returnStatus: true
+
+          )
+
+          if (monitoringExists == 0) {
+
+            echo "Prometheus/Grafana already present in namespace '${MONITORING_NAMESPACE}'. Skipping deployment."
+
+          } else {
+
+            sh '''
+
+              chmod +x scripts/deploy-monitoring.sh
+
+              ./scripts/deploy-monitoring.sh ${ENV_FILE}
+
+            '''
+
+          }
+
+        }
+
+      }
+
     }
+
   }
+
+
+
+  post {
+
+    always {
+
+      sh '''
+
+        echo "===== Deployment Summary ====="
+
+        kubectl get pods -n ${K8S_NAMESPACE} || true
+
+        kubectl get svc -n ${K8S_NAMESPACE} || true
+
+        kubectl get ingress -n ${K8S_NAMESPACE} || true
+
+      '''
+
+    }
+
+  }
+
 }
